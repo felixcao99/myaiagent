@@ -31,47 +31,6 @@ messages = [
 ]
 
 
-def call_function(function_call_part, verbose=False):
-    if verbose:
-        print(f"Calling function: {function_call_part.name}({function_call_part.args})")
-    else:
-        print(f"Calling function: {function_call_part.name}")
-    functions = {
-        "get_files_info": get_files_info,
-        "get_file_content": get_file_content,
-        "run_python_file": run_python_file,
-        "write_file": write_file,
-    }
-    function = functions.get(function_call_part.name)
-
-    if not function:
-        return types.Content(
-            role="tool",
-            parts=[
-                types.Part.from_function_response(
-                    name=function_call_part.name,
-                    response={"error": f"Unknown function: {function_call_part.name}"},
-                )
-            ],
-        )
-
-    result = function(
-        working_directory="calculator",  # This is the working directory, it is automatically injected by the system
-        **function_call_part.args,
-    )
-
-    return types.Content(
-        role="tool",
-        parts=[
-            types.Part.from_function_response(
-                name=function_call_part.name,
-                response={"result": result},
-            )
-        ],
-    )
-
-
-
 # question = argument
 ### Function to get file content ###
 schema_get_files_info = types.FunctionDeclaration(
@@ -144,6 +103,43 @@ available_functions = types.Tool(
     ]
 )
 
+def call_function(function_call_part, verbose=False):
+    if verbose:
+        print(f"Calling function: {function_call_part.name}({function_call_part.args})")
+    else:
+        print(f"Calling function: {function_call_part.name}")
+    functions = {
+        "get_files_info": get_files_info,
+        "get_file_content": get_file_content,
+        "run_python_file": run_python_file,
+        "write_file": write_file,
+    }
+    function = functions.get(function_call_part.name)
+    if not function:
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_call_part.name,
+                    response={"error": f"Unknown function: {function_call_part.name}"},
+                )
+            ],
+        )
+    result = function(
+        working_directory="calculator",  # This is the working directory, it is automatically injected by the system
+        **function_call_part.args,
+    )
+    return types.Content(
+        role="tool",
+        parts=[
+            types.Part.from_function_response(
+                name=function_call_part.name,
+                response={"result": result},
+            )
+        ],
+    )
+
+
 system_prompt = """
 You are a helpful AI coding agent.
 
@@ -159,27 +155,30 @@ All paths you provide should be relative to the working directory. You do not ne
 
 
 
+for i in range(20):
+    response = client.models.generate_content(
+        model='gemini-2.0-flash-001', 
+        contents= messages,
+        config=types.GenerateContentConfig(
+        tools=[available_functions], system_instruction=system_prompt)
+    )
+    for condidate in response.candidates:
+        messages.append(condidate.content)
 
-response = client.models.generate_content(
-    model='gemini-2.0-flash-001', 
-    contents= messages,
-    config=types.GenerateContentConfig(
-    tools=[available_functions], system_instruction=system_prompt)
-)
-if response.function_calls:
-    # for function_call in response.function_calls:
-    #     print(f"Calling function: {function_call.name}({function_call.args})")
-    # else:
-    #     print(response.text)
-    for function_call in response.function_calls:
-        function_result = call_function(function_call, verbose=(p == '--verbose'))
-        try:
-            output = function_result.parts[0].function_response.response.get("result")
-            if p == '--verbose':
+    if response.function_calls:
+        for function_call in response.function_calls:
+            function_result = call_function(function_call, verbose=(p == '--verbose'))
+            messages.append(function_result)
+            try:
+                output = function_result.parts[0].function_response.response.get("result")
+                if p == '--verbose':
+                    print(f"-> {output}")
+            except Exception as e:
+                output = f"Error: {str(e)}"
                 print(f"-> {output}")
-        except Exception as e:
-            output = f"Error: {str(e)}"
-            print(f"-> {output}")
+    else:
+        print(response.candidates[0].content.parts[0].text)
+        break
 
 # if p == '--verbose':
 #     print(f"User prompt: {argument}")
